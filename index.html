@@ -375,7 +375,11 @@
     <div class="profile-card">
       <div class="avatar-frame">
         <div class="avatar-inner">
-          <img id="main-avatar" class="avatar" src="https://embed.pixiv.net/user_profile.php?id=87842624" alt="おかずレシピ">
+          <!-- 確実な公式埋め込み画像 ＋ エラー保護 -->
+          <img id="main-avatar" class="avatar" 
+               src="https://embed.pixiv.net/user_profile.php?id=87842624" 
+               onerror="this.src='https://embed.pixiv.net/user_profile.php?id=87842624'" 
+               alt="おかずレシピ">
         </div>
         <span class="fox-emblem"><i class="fa-solid fa-paw"></i> 日本家屋で睡眠中</span>
       </div>
@@ -411,7 +415,10 @@
       <!-- Pixiv -->
       <a href="https://www.pixiv.net/users/87842624" target="_blank" rel="noopener" class="link-card">
         <div class="card-thumb-wrapper">
-          <img id="pixiv-card-thumb" src="https://embed.pixiv.net/user_profile.php?id=87842624" class="card-thumb" alt="Pixiv">
+          <img id="pixiv-card-thumb" 
+               src="https://embed.pixiv.net/user_profile.php?id=87842624" 
+               onerror="this.src='https://embed.pixiv.net/user_profile.php?id=87842624'" 
+               class="card-thumb" alt="Pixiv">
         </div>
         <div class="card-content">
           <div class="card-title">Pixiv</div>
@@ -452,7 +459,7 @@
     </div>
   </div>
 
-  <!-- ✨ GitHub Actions生成のJSONを読み込み -->
+  <!-- ✨ JSON読み込み処理（アイコン保護付き） -->
   <script>
     const container = document.getElementById('pixiv-works-container');
     const mainAvatar = document.getElementById('main-avatar');
@@ -464,7 +471,8 @@
         if (!res.ok) return;
         const data = await res.json();
 
-        if (data.avatar) {
+        // 壊れたプロキシURLで上書きされないよう安全に判定
+        if (data.avatar && !data.avatar.includes('wsrv.nl/?url=https%3A%2F%2Fembed.pixiv.net')) {
           mainAvatar.src = data.avatar;
           pixivCardThumb.src = data.avatar;
         }
@@ -543,32 +551,4 @@
         pCtx.translate(this.x, this.y);
         pCtx.fillStyle = `rgba(255, 225, 130, ${this.alpha})`;
         pCtx.shadowBlur = 8;
-        pCtx.shadowColor = `rgba(255, 215, 0, ${this.alpha})`;
-        if (this.isStar) {
-          pCtx.beginPath();
-          for (let i = 0; i < 4; i++) {
-            pCtx.lineTo(0, -this.size * 2);
-            pCtx.rotate(Math.PI / 4);
-            pCtx.lineTo(0, -this.size * 0.5);
-            pCtx.rotate(Math.PI / 4);
-          }
-          pCtx.fill();
-        } else {
-          pCtx.beginPath();
-          pCtx.arc(0, 0, this.size, 0, Math.PI * 2);
-          pCtx.fill();
-        }
-        pCtx.restore();
-      }
-    }
-
-    for (let i = 0; i < 35; i++) pList.push(new SparkleParticle());
-    function pAnimate() {
-      pCtx.clearRect(0, 0, pCanvas.width, pCanvas.height);
-      pList.forEach(p => { p.update(); p.draw(); });
-      requestAnimationFrame(pAnimate);
-    }
-    pAnimate();
-  </script>
-</body>
-</html>
+        pCtx.shadowColor = `rgba(255, 21
