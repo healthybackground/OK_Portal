@@ -217,37 +217,52 @@
 
     .work-card:hover .work-img { transform: scale(1.08); }
 
-    .novel-fallback-cover {
+    /* ✨ 小説用・金箔押し文庫本風カバー（常に美しく表示） */
+    .novel-book-cover {
       width: 100%;
       height: 100%;
-      background: linear-gradient(135deg, #ffeedb 0%, #ffd8b8 100%);
+      background: radial-gradient(circle at 30% 20%, #ffffff 0%, #fff2e0 60%, #ffdcb8 100%);
       display: flex;
       flex-direction: column;
       justify-content: center;
       align-items: center;
-      padding: 12px;
+      padding: 14px 10px;
       text-align: center;
-      border: 1.5px dashed rgba(212, 175, 55, 0.6);
+      border: 1.5px solid rgba(212, 175, 55, 0.5);
       border-radius: 14px;
       box-sizing: border-box;
+      position: relative;
+      box-shadow: inset 0 0 12px rgba(212, 175, 55, 0.15);
     }
 
-    .novel-fallback-icon {
-      font-size: 1.5rem;
+    .novel-book-cover::before {
+      content: '';
+      position: absolute;
+      inset: 4px;
+      border: 1px dashed rgba(212, 175, 55, 0.4);
+      border-radius: 10px;
+      pointer-events: none;
+    }
+
+    .novel-book-icon {
+      font-size: 1.6rem;
       color: var(--gold-rich);
-      margin-bottom: 4px;
+      margin-bottom: 6px;
+      filter: drop-shadow(0 2px 4px rgba(212, 175, 55, 0.3));
     }
 
-    .novel-fallback-title {
+    .novel-book-title {
       font-family: 'Shippori Mincho', serif;
-      font-size: 0.75rem;
+      font-size: 0.78rem;
       font-weight: 700;
       color: var(--text-royal);
-      line-height: 1.3;
+      line-height: 1.35;
       display: -webkit-box;
       -webkit-line-clamp: 3;
       -webkit-box-orient: vertical;
       overflow: hidden;
+      text-shadow: 0 1px 2px rgba(255,255,255,0.8);
+      z-index: 1;
     }
 
     .img-badge {
@@ -375,7 +390,6 @@
     <div class="profile-card">
       <div class="avatar-frame">
         <div class="avatar-inner">
-          <!-- 確実な公式埋め込み画像 ＋ エラー保護 -->
           <img id="main-avatar" class="avatar" 
                src="https://embed.pixiv.net/user_profile.php?id=87842624" 
                onerror="this.src='https://embed.pixiv.net/user_profile.php?id=87842624'" 
@@ -405,7 +419,7 @@
       </div>
 
       <div class="carousel-container" id="pixiv-works-container">
-        <!-- pickup.json から0秒で自動描画 -->
+        <!-- pickup.json から自動描画 -->
       </div>
     </div>
 
@@ -459,7 +473,7 @@
     </div>
   </div>
 
-  <!-- ✨ JSON読み込み処理（アイコン保護付き） -->
+  <!-- ✨ 小説完全自動カバー変換スクリプト -->
   <script>
     const container = document.getElementById('pixiv-works-container');
     const mainAvatar = document.getElementById('main-avatar');
@@ -471,7 +485,6 @@
         if (!res.ok) return;
         const data = await res.json();
 
-        // 壊れたプロキシURLで上書きされないよう安全に判定
         if (data.avatar && !data.avatar.includes('wsrv.nl/?url=https%3A%2F%2Fembed.pixiv.net')) {
           mainAvatar.src = data.avatar;
           pixivCardThumb.src = data.avatar;
@@ -486,13 +499,23 @@
             card.rel = 'noopener';
             card.className = 'work-card';
 
-            const coverHtml = item.img 
-              ? `<img src="${item.img}" class="work-img" alt="${item.title}" loading="lazy">
-                 ${item.pages > 1 ? `<span class="img-badge"><i class="fa-solid fa-images"></i> ${item.pages}</span>` : ''}`
-              : `<div class="novel-fallback-cover">
-                   <i class="fa-solid fa-book-open novel-fallback-icon"></i>
-                   <div class="novel-fallback-title">${item.title}</div>
-                 </div>`;
+            const isNovel = item.type === '小説作品' || item.href.includes('/novel/');
+
+            // 小説作品はすべて「金箔押し文庫本風カバー」に統一して置き換え
+            let coverHtml = '';
+            if (isNovel) {
+              coverHtml = `
+                <div class="novel-book-cover">
+                  <i class="fa-solid fa-book-open novel-book-icon"></i>
+                  <div class="novel-book-title">${item.title}</div>
+                </div>
+              `;
+            } else {
+              coverHtml = `
+                <img src="${item.img}" class="work-img" alt="${item.title}" loading="lazy" onerror="this.parentElement.innerHTML='<div class=\\'novel-book-cover\\'><i class=\\'fa-solid fa-image novel-book-icon\\'></i><div class=\\'novel-book-title\\'>${item.title}</div></div>'">
+                ${item.pages > 1 ? `<span class="img-badge"><i class="fa-solid fa-images"></i> ${item.pages}</span>` : ''}
+              `;
+            }
 
             card.innerHTML = `
               <div class="work-img-wrapper">${coverHtml}</div>
@@ -551,4 +574,32 @@
         pCtx.translate(this.x, this.y);
         pCtx.fillStyle = `rgba(255, 225, 130, ${this.alpha})`;
         pCtx.shadowBlur = 8;
-        pCtx.shadowColor = `rgba(255, 21
+        pCtx.shadowColor = `rgba(255, 215, 0, ${this.alpha})`;
+        if (this.isStar) {
+          pCtx.beginPath();
+          for (let i = 0; i < 4; i++) {
+            pCtx.lineTo(0, -this.size * 2);
+            pCtx.rotate(Math.PI / 4);
+            pCtx.lineTo(0, -this.size * 0.5);
+            pCtx.rotate(Math.PI / 4);
+          }
+          pCtx.fill();
+        } else {
+          pCtx.beginPath();
+          pCtx.arc(0, 0, this.size, 0, Math.PI * 2);
+          pCtx.fill();
+        }
+        pCtx.restore();
+      }
+    }
+
+    for (let i = 0; i < 35; i++) pList.push(new SparkleParticle());
+    function pAnimate() {
+      pCtx.clearRect(0, 0, pCanvas.width, pCanvas.height);
+      pList.forEach(p => { p.update(); p.draw(); });
+      requestAnimationFrame(pAnimate);
+    }
+    pAnimate();
+  </script>
+</body>
+</html>
