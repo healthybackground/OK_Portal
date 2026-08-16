@@ -15,113 +15,97 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Fetch Latest Pixiv Pickup from HTML
+      - name: Fetch Pixiv Data via Ajax API
         run: |
           node -e '
-          const https = require("https");
-          const fs = require("fs");
+          async function run() {
+            const fs = require("fs");
+            const userId = "87842624";
+            const apiUrl = `https://www.pixiv.net/ajax/user/${userId}/profile/top?lang=ja`;
 
-          const url = "https://www.pixiv.net/users/87842624";
-          const options = {
-            headers: {
-              "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-              "Accept-Language": "ja,en-US;q=0.9,en;q=0.8",
-              "Cookie": "p_ab_d_id=1272411874; user_id=87842624;"
-            }
-          };
-
-          https.get(url, options, (res) => {
-            let html = "";
-            res.on("data", chunk => html += chunk);
-            res.on("end", () => {
-              try {
-                // 1. ピックアップセクションを抽出
-                const pickupMatch = html.match(/<h2[^>]*>ピックアップ<\/h2>[\s\S]*?<\/section>/);
-                const pickupSection = pickupMatch ? pickupMatch[0] : html;
-
-                // 2. アイテムごとに分割
-                const items = pickupSection.match(/<li[\s\S]*?<\/li>/g) || [];
-                const pickupList = [];
-
-                for (const item of items) {
-                  // 作品リンク & IDの取得
-                  const linkMatch = item.match(/href="https:\/\/www\.pixiv\.net\/(artworks\/(\d+)|novel\/show\.php\?id=(\d+))"/);
-                  if (!linkMatch) continue;
-
-                  const href = linkMatch[0].replace(/href="|"/g, "");
-                  const isNovel = href.includes("/novel/");
-                  const id = linkMatch[2] || linkMatch[3];
-
-                  // タイトルの取得
-                  let title = "無題";
-                  const titleMatch = item.match(/<a[^>]*href="[^"]*(artworks\/\d+|novel\/show\.php\?id=\d+)"[^>]*>([^<]+)<\/a>/);
-                  if (titleMatch && titleMatch[2]) {
-                    title = titleMatch[2].trim();
-                  } else {
-                    const altMatch = item.match(/alt="([^"]+)"/);
-                    if (altMatch) title = altMatch[1].replace(/ - おかずレシピの.*$/, "").replace(/^#.*? /, "").trim();
-                  }
-
-                  // R-18判定
-                  let r18 = "";
-                  if (item.includes("R-18G")) r18 = "R-18G";
-                  else if (item.includes("R-18")) r18 = "R-18";
-
-                  // メタ情報（枚数 or 文字数）
-                  let meta = "";
-                  const countMatch = item.match(/<span>(\d+)<\/span><\/div><\/div><\/div><\/a>/) || item.match(/<span>(\d+)<\/span>/);
-                  const wordMatch = item.match(/([0-9,]+文字)/);
-                  const timeMatch = item.match(/([0-9]+分)/);
-
-                  if (isNovel && wordMatch) {
-                    meta = wordMatch[1] + (timeMatch ? " / " + timeMatch[1] : "");
-                  } else if (countMatch) {
-                    meta = "イラスト " + countMatch[1] + "枚";
-                  }
-
-                  // サムネイル画像の処理
-                  let img = "";
-                  const imgMatch = item.match(/src="([^"]+)"/);
-                  if (isNovel) {
-                    // 小説に表紙がある場合のみ設定（なければ空にして金箔風カバーを適用）
-                    if (imgMatch && imgMatch[1].includes("master1200")) {
-                      img = "https://wsrv.nl/?url=" + encodeURIComponent(imgMatch[1]);
-                    }
-                  } else {
-                    // イラストは pixiv.cat で高画質表示
-                    img = "https://pixiv.cat/" + id + ".jpg";
-                  }
-
-                  pickupList.push({
-                    id,
-                    title,
-                    type: isNovel ? "小説作品" : "イラスト作品",
-                    href,
-                    img,
-                    r18,
-                    pages: countMatch ? parseInt(countMatch[1], 10) : 1,
-                    meta
-                  });
-                }
-
-                // アバター画像URL
-                const avatarMatch = html.match(/https:\/\/embed\.pixiv\.net\/user_profile\.php\?[^"]+/);
-                const avatar = avatarMatch ? avatarMatch[0].replace(/&amp;/g, "&") : "https://embed.pixiv.net/user_profile.php?id=87842624";
-
-                const result = {
-                  avatar,
-                  pickup: pickupList
-                };
-
-                fs.writeFileSync("pickup.json", JSON.stringify(result, null, 2));
-                console.log("Successfully generated pickup.json with " + pickupList.length + " items.");
-              } catch (err) {
-                console.error("Parse Error:", err);
-                process.exit(1);
+            const res = await fetch(apiUrl, {
+              headers: {
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+                "Referer": `https://www.pixiv.net/users/${userId}`,
+                "Accept": "application/json",
+                "Cookie": "p_ab_d_id=1272411874; user_id=87842624; first_visit_datetime_pc=2024-05-01;"
               }
             });
-          }).on("error", (err) => {
-            console.error("HTTP Error:", err);
+
+            if (!res.ok) {
+              console.error("HTTP Error:", res.status, res.statusText);
+              process.exit(1);
+            }
+
+            const data = await res.json();
+            const body = data.body || {};
+
+            // 1. ピックアップ配列を取得（空の場合は最新作品から自動生成）
+            let rawList = body.pickup || [];
+
+            // 万が一未ログイン判定で pickup が空の場合は、最新のイラスト・小説からピックアップ
+            if (rawList.length === 0) {
+              console.log("Pickup array empty, falling back to top works...");
+              const illusts = Object.values(body.illusts || {});
+              const novels = Object.values(body.novels || {});
+              rawList = [...novels.slice(0, 1), ...illusts.slice(0, 3)];
+            }
+
+            const pickup = rawList.map(item => {
+              const isNovel = item.workType === "novel" || item.novelId || item.textCount || item.wordCount;
+              const href = isNovel 
+                ? `https://www.pixiv.net/novel/show.php?id=${item.id}`
+                : `https://www.pixiv.net/artworks/${item.id}`;
+
+              const isR18 = item.xRestrict === 1 ? "R-18" : (item.xRestrict === 2 ? "R-18G" : "");
+              
+              let meta = "";
+              if (isNovel) {
+                const words = item.wordCount || item.textCount || item.characterCount;
+                meta = words ? `${words.toLocaleString()}文字` : "";
+              } else {
+                const pages = item.pageCount;
+                meta = pages ? `イラスト ${pages}枚` : "";
+              }
+
+              // 画像URLの生成
+              let img = "";
+              let rawUrl = item.url || item.profileImageUrl || "";
+              if (isNovel) {
+                if (rawUrl && !rawUrl.includes("default") && !rawUrl.includes("no-image")) {
+                  img = `https://wsrv.nl/?url=${encodeURIComponent(rawUrl)}`;
+                }
+              } else {
+                img = item.id ? `https://pixiv.cat/${item.id}.jpg` : (rawUrl ? `https://wsrv.nl/?url=${encodeURIComponent(rawUrl)}` : "");
+              }
+
+              return {
+                id: item.id,
+                title: item.title || "無題",
+                type: isNovel ? "小説作品" : "イラスト作品",
+                href,
+                img,
+                r18: isR18,
+                pages: item.pageCount || 1,
+                meta
+              };
+            });
+
+            // 2. アバター画像
+            const avatarRaw = body.extraData?.meta?.ogp?.image || body.userData?.profileImgBig || body.userData?.profileImg || "";
+            const avatar = avatarRaw ? `https://wsrv.nl/?url=${encodeURIComponent(avatarRaw)}` : `https://embed.pixiv.net/user_profile.php?id=${userId}`;
+
+            const result = {
+              avatar,
+              pickup
+            };
+
+            fs.writeFileSync("pickup.json", JSON.stringify(result, null, 2));
+            console.log("Successfully generated pickup.json with " + pickup.length + " works.");
+          }
+
+          run().catch(err => {
+            console.error("Fatal Error:", err);
             process.exit(1);
           });
           '
