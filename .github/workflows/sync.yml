@@ -1,0 +1,85 @@
+name: Pixiv Pickup Auto Sync
+
+on:
+  schedule:
+    - cron: '*/30 * * * *' # 毎日自動更新
+  workflow_dispatch:     # 手動更新ボタンも有効化
+  push:
+    branches: [ main, master ]
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Fetch Latest Pixiv Pickup
+        run: |
+          node -e '
+          const https = require("https");
+          const fs = require("fs");
+
+          const url = "https://www.pixiv.net/ajax/user/87842624/profile/top?lang=ja";
+          const options = {
+            headers: {
+              "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+              "Referer": "https://www.pixiv.net/"
+            }
+          };
+
+          https.get(url, options, (res) => {
+            let data = "";
+            res.on("data", chunk => data += chunk);
+            res.on("end", () => {
+              try {
+                const json = JSON.parse(data);
+                const pickup = json.body.pickup || [];
+                const avatar = json.body.extraData?.meta?.ogp?.image || json.body.userData?.profileImgBig || "";
+
+                const result = {
+                  avatar: avatar ? "https://wsrv.nl/?url=" + encodeURIComponent(avatar) : "",
+                  pickup: pickup.map(item => {
+                    const isNovel = item.workType === "novel" || item.novelId || item.textCount;
+                    const href = isNovel ? "https://www.pixiv.net/novel/show.php?id=" + item.id : "https://www.pixiv.net/artworks/" + item.id;
+                    const isR18 = item.xRestrict === 1 ? "R-18" : item.xRestrict === 2 ? "R-18G" : "";
+                    const meta = isNovel ? (item.wordCount ? item.wordCount.toLocaleString() + "文字" : "") : (item.pageCount ? "イラスト " + item.pageCount + "枚" : "");
+                    
+                    let img = "";
+                    if (!isNovel && item.id) {
+                      img = "https://pixiv.cat/" + item.id + ".jpg";
+                    } else if (item.url && !item.url.includes("default")) {
+                      img = "https://wsrv.nl/?url=" + encodeURIComponent(item.url);
+                    }
+
+                    return {
+                      id: item.id,
+                      title: item.title || "無題",
+                      type: isNovel ? "小説作品" : "イラスト作品",
+                      href,
+                      img,
+                      r18: isR18,
+                      pages: item.pageCount || 1,
+                      meta
+                    };
+                  })
+                };
+
+                fs.writeFileSync("pickup.json", JSON.stringify(result, null, 2));
+                console.log("Successfully generated pickup.json");
+              } catch(err) {
+                console.error(err);
+                process.exit(1);
+              }
+            });
+          }).on("error", err => { console.error(err); process.exit(1); });
+          '
+
+      - name: Commit and Push
+        run: |
+          git config --global user.name 'github-actions[bot]'
+          git config --global user.email 'github-actions[bot]@users.noreply.github.com'
+          git add pickup.json
+          git diff --quiet && git diff --staged --quiet || git commit -m "Auto sync Pixiv pickup"
+          git push
