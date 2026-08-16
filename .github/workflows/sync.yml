@@ -2,8 +2,8 @@ name: Pixiv Pickup Auto Sync
 
 on:
   schedule:
-    - cron: '*/15 * * * *' # 15分ごとに自動同期
-  workflow_dispatch:      # 手動実行ボタン
+    - cron: '*/15 * * * *' # 15分ごとに自動更新
+  workflow_dispatch:      # 手動更新ボタン
   push:
     branches: [ main, master ]
 
@@ -15,7 +15,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Fetch Pixiv Pickup Works via Ajax
+      - name: Fetch Pixiv Data via Ajax API
         run: |
           node -e '
           async function run() {
@@ -25,27 +25,33 @@ jobs:
 
             const res = await fetch(apiUrl, {
               headers: {
-                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
                 "Referer": `https://www.pixiv.net/users/${userId}`,
                 "Accept": "application/json",
-                "Accept-Language": "ja,en-US;q=0.9,en;q=0.8",
-                "Cookie": "p_ab_d_id=1272411874; p_ab_id=0; p_ab_id_2=0; adult_check=1; age_gate=1; user_id=87842624;"
+                "Cookie": "p_ab_d_id=1272411874; user_id=87842624; first_visit_datetime_pc=2024-05-01;"
               }
             });
 
             if (!res.ok) {
-              console.error("HTTP Error:", res.status);
+              console.error("HTTP Error:", res.status, res.statusText);
               process.exit(1);
             }
 
             const data = await res.json();
             const body = data.body || {};
 
-            // Ajax APIから返ってくる「pickup（ピックアップ）」配列を抽出
-            const rawPickup = body.pickup || [];
-            console.log("Found pickup works count:", rawPickup.length);
+            // 1. ピックアップ配列を取得（空の場合は最新作品から自動生成）
+            let rawList = body.pickup || [];
 
-            const pickup = rawPickup.map(item => {
+            // 万が一未ログイン判定で pickup が空の場合は、最新のイラスト・小説からピックアップ
+            if (rawList.length === 0) {
+              console.log("Pickup array empty, falling back to top works...");
+              const illusts = Object.values(body.illusts || {});
+              const novels = Object.values(body.novels || {});
+              rawList = [...novels.slice(0, 1), ...illusts.slice(0, 3)];
+            }
+
+            const pickup = rawList.map(item => {
               const isNovel = item.workType === "novel" || item.novelId || item.textCount || item.wordCount;
               const href = isNovel 
                 ? `https://www.pixiv.net/novel/show.php?id=${item.id}`
@@ -53,7 +59,6 @@ jobs:
 
               const isR18 = item.xRestrict === 1 ? "R-18" : (item.xRestrict === 2 ? "R-18G" : "");
               
-              // 文字数 / 枚数
               let meta = "";
               if (isNovel) {
                 const words = item.wordCount || item.textCount || item.characterCount;
@@ -63,16 +68,14 @@ jobs:
                 meta = pages ? `イラスト ${pages}枚` : "";
               }
 
-              // サムネイル画像
+              // 画像URLの生成
               let img = "";
               let rawUrl = item.url || item.profileImageUrl || "";
               if (isNovel) {
-                // 小説：表紙がある場合のみ設定
                 if (rawUrl && !rawUrl.includes("default") && !rawUrl.includes("no-image")) {
                   img = `https://wsrv.nl/?url=${encodeURIComponent(rawUrl)}`;
                 }
               } else {
-                // イラスト：高解像度プロキシ
                 img = item.id ? `https://pixiv.cat/${item.id}.jpg` : (rawUrl ? `https://wsrv.nl/?url=${encodeURIComponent(rawUrl)}` : "");
               }
 
@@ -88,7 +91,7 @@ jobs:
               };
             });
 
-            // プロフィールアバター
+            // 2. アバター画像
             const avatarRaw = body.extraData?.meta?.ogp?.image || body.userData?.profileImgBig || body.userData?.profileImg || "";
             const avatar = avatarRaw ? `https://wsrv.nl/?url=${encodeURIComponent(avatarRaw)}` : `https://embed.pixiv.net/user_profile.php?id=${userId}`;
 
@@ -98,11 +101,11 @@ jobs:
             };
 
             fs.writeFileSync("pickup.json", JSON.stringify(result, null, 2));
-            console.log("Successfully updated pickup.json with pickup works.");
+            console.log("Successfully generated pickup.json with " + pickup.length + " works.");
           }
 
           run().catch(err => {
-            console.error("Error:", err);
+            console.error("Fatal Error:", err);
             process.exit(1);
           });
           '
